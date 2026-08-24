@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Actions are pinned to full commit SHAs rather than tags. A tag is mutable, and a
+# supply-chain compromise of a widely used action is the cheapest way into a CI job that
+# has a token.
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  # The fast lane. No JVM, no containers, no network. If the one-way dependency rule in
+  # tests/unit/test_layering.py holds, everything that defines window semantics is
+  # checked here, in seconds.
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --group dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy src
+      - run: uv run pytest tests/unit -q --cov --cov-report=term-missing
+
+  # The slow lane. Brings up the real stack and runs against it, because a mocked
+  # Iceberg catalog proves nothing about whether this project's Iceberg catalog works.
+  stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          # Spark 4.0 accepts 17 and 21 only. asofline.offline.session asserts this
+          # before starting a JVM, so a wrong version fails with a sentence rather than
+          # a stack trace.
+          java-version: "17"
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --group dev --extra spark
+      - name: Bring up the stack
+        run: docker compose up -d --wait
+      - name: Show stack state on failure
+        if: failure()
+        run: docker compose ps && docker compose logs --tail=100
+      - run: uv run pytest tests/spark tests/integration -q
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

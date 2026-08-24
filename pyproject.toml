@@ -1,0 +1,69 @@
+[project]
+name = "asofline"
+version = "0.1.0"
+description = "A point-in-time correct feature store: Iceberg offline, Redis online, one definition compiled to both paths, with a training-serving skew detector."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Rajeev Chaurasia", email = "Rajeevchaurasia.dev@gmail.com" }]
+keywords = ["feature-store", "iceberg", "point-in-time", "training-serving-skew", "redis", "kafka"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+# Split so that tests/unit runs with no Spark, no JVM and no containers.
+spark = ["pyspark==4.0.4"]
+online = ["redis==8.1.0", "confluent-kafka==2.15.0"]
+serving = ["fastapi>=0.115", "uvicorn[standard]>=0.34", "pydantic>=2.9"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.100",
+    "mypy>=1.13",
+    "ruff>=0.8",
+    "numpy>=2.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["pyspark.*", "confluent_kafka.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "spark: needs a JVM and PySpark",
+    "integration: needs the docker compose stack",
+]
+
+[tool.coverage.run]
+source = ["asofline"]
+branch = true
