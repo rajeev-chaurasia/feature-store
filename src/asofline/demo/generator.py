@@ -158,8 +158,10 @@ class EngagementGenerator:
         return min(int(draw), _MAX_LATENESS_MS)
 
     @staticmethod
-    def _watch_seconds(rng: random.Random, event_type: EventType) -> float:
+    def _watch_seconds(rng: random.Random, event_type: EventType) -> float | None:
         if event_type is not EventType.WATCH:
-            return 0.0
+            # Null, not zero. An impression has no watch duration, and calling it zero
+            # would drag every average down by the impression rate.
+            return None
         # Short-video watch time is right skewed: most watches are partial, a few loop.
         return round(min(rng.lognormvariate(2.0, 0.9), 600.0), 3)

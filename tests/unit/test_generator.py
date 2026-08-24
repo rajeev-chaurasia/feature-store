@@ -105,10 +105,21 @@ class TestSkew:
 
 
 class TestPayload:
-    def test_watch_seconds_only_on_watches(self, events: list[EngagementEvent]) -> None:
+    def test_watch_seconds_is_null_off_a_watch_and_present_on_one(
+        self, events: list[EngagementEvent]
+    ) -> None:
+        """Null rather than zero, so avg means seconds per watch under SQL semantics."""
         for event in events:
-            if event.event_type is not EventType.WATCH:
-                assert event.watch_seconds == 0.0
+            if event.event_type is EventType.WATCH:
+                assert event.watch_seconds is not None
+                assert event.watch_seconds > 0.0
+            else:
+                assert event.watch_seconds is None
+
+    def test_indicator_columns_are_zero_not_null(self, events: list[EngagementEvent]) -> None:
+        """The other half of the convention: sum(liked) must count non-likes as zero."""
+        assert all(event.liked in (0, 1) for event in events)
+        assert all(event.shared in (0, 1) for event in events)
 
     def test_flags_match_their_event_type(self, events: list[EngagementEvent]) -> None:
         for event in events:

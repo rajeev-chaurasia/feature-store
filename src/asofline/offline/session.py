@@ -22,6 +22,8 @@ from asofline.config import SETTINGS, Settings
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
+_LOG4J_CONFIG = Path(__file__).resolve().parents[3] / "conf" / "log4j2.properties"
+
 ICEBERG_VERSION = "1.11.0"
 SUPPORTED_JAVA_MAJORS = frozenset({17, 21})
 
@@ -115,6 +117,9 @@ def build_session(
         # zone leaking into a cast is the classic way an as-of join goes quietly wrong.
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.ui.showConsoleProgress", "false")
+        # Plain text logs. See conf/log4j2.properties for why the SparkConf flag alone
+        # does not achieve this.
+        .config("spark.driver.extraJavaOptions", f"-Dlog4j.configurationFile={_LOG4J_CONFIG}")
     )
     for key, value in catalog_options(settings).items():
         builder = builder.config(key, value)

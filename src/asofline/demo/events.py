@@ -40,6 +40,16 @@ class EngagementEvent:
     ``event_ts`` is when it happened. ``created_ts`` is when this system first saw it.
     ``created_ts >= event_ts`` always, and the gap is the late tail that the whole
     point-in-time argument turns on.
+
+    Two null conventions live side by side here, deliberately:
+
+    * ``watch_seconds`` is **null** on an event that is not a watch, because an impression
+      has no watch duration. Standard SQL aggregate semantics then give ``avg`` the
+      meaning people actually want, mean seconds *per watch*, with no filter language in
+      the definition layer to compile to two runtimes.
+    * ``liked`` and ``shared`` are **0**, not null, because "this event was not a like" is
+      a real zero. ``sum(liked)`` over a window is the number of likes, which is only
+      correct if non-likes contribute zero.
     """
 
     event_id: str
@@ -48,7 +58,7 @@ class EngagementEvent:
     video_id: str
     event_ts: int
     created_ts: int
-    watch_seconds: float = 0.0
+    watch_seconds: float | None = None
     liked: int = 0
     shared: int = 0
 
@@ -77,7 +87,9 @@ class EngagementEvent:
             video_id=str(payload["video_id"]),
             event_ts=int(payload["event_ts"]),
             created_ts=int(payload["created_ts"]),
-            watch_seconds=float(payload.get("watch_seconds", 0.0)),
+            watch_seconds=(
+                None if payload.get("watch_seconds") is None else float(payload["watch_seconds"])
+            ),
             liked=int(payload.get("liked", 0)),
             shared=int(payload.get("shared", 0)),
         )
