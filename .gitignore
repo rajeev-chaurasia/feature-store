@@ -14,5 +14,6 @@ build/
 spark-warehouse/
 metastore_db/
 derby.log
+checkpoints/
 .DS_Store
 data/generated/
