@@ -46,13 +46,15 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --group dev --extra spark
+      - run: uv sync --group dev --all-extras
       - name: Bring up the stack
         run: docker compose up -d --wait
       - name: Show stack state on failure
         if: failure()
         run: docker compose ps && docker compose logs --tail=100
-      - run: uv run pytest tests/spark tests/integration -q
+      - run: uv run pytest tests/spark tests/integration tests/serving -q
+      - name: Re-validate every committed evidence artifact
+        run: uv run python scripts/validate_artifacts.py results/
       - name: Tear down
         if: always()
         run: docker compose down -v
