@@ -23,6 +23,7 @@ class Settings:
     kafka_bootstrap: str
     events_topic: str
     feature_log_topic: str
+    feature_log_sample_rate: float
     redis_url: str
 
     @classmethod
@@ -42,6 +43,7 @@ class Settings:
             kafka_bootstrap=get("ASOFLINE_KAFKA_BOOTSTRAP", "localhost:9092"),
             events_topic=get("ASOFLINE_EVENTS_TOPIC", "engagement_events"),
             feature_log_topic=get("ASOFLINE_FEATURE_LOG_TOPIC", "feature_logs"),
+            feature_log_sample_rate=float(get("ASOFLINE_FEATURE_LOG_SAMPLE_RATE", "1.0")),
             redis_url=get("ASOFLINE_REDIS_URL", "redis://localhost:6379/0"),
         )
 
