@@ -1,11 +1,10 @@
 """Redis seeding helpers for tests that exercise the online store.
 
-The Kafka-to-Redis consumer that will normally populate ``online.keys``'s tile hashes and
-head ZSETs is being built in parallel and does not exist yet, so tests here write directly
-through the same primitives it will use: ``HSET`` for tile fields via
+Rather than requiring a running Kafka-to-Redis consumer, tests here write directly
+through the same primitives it uses: ``HSET`` for tile fields via
 ``asofline.online.codec.encode_state``, and ``ZADD`` for head events via
-``asofline.online.head.encode_head_event``. Once the real consumer lands, its own tests can
-reuse these helpers rather than reinventing seeding.
+``asofline.online.head.encode_head_event``. This lets the online store's own tests stay
+independent of the consumer's, and vice versa, while both still exercise real Redis.
 
 Tests run against ``TEST_REDIS_URL``, a database index set aside for this suite, never the
 default database (index 0) an application, a concurrently running consumer, or another
@@ -85,14 +84,25 @@ async def seed_head_event(
     *,
     event_ts_ms: int,
     columns: Mapping[str, float | None],
+    event_id: str | None = None,
 ) -> None:
     """Push one raw event onto the head ZSET in the exact shape ``online.store`` reads.
 
     ``columns`` maps a source column name (``FeatureSpec.column``, e.g.
     ``"watch_seconds"``) to its value on this event, or ``None`` if the event does not
     carry that column at all.
+
+    ``event_id`` defaults to a value derived from ``event_ts_ms`` for callers seeding a
+    single head event per entity, which is every existing caller. It must be given
+    explicitly, and be distinct, when seeding more than one head event with the same
+    ``columns`` for the same entity: the real encoding keys each ZSET member on
+    ``event_id`` specifically so that two events with identical column values (every
+    impression in this project's demo data, for instance) do not collide into one entry,
+    and a fixed default here would silently reintroduce that same collision in tests that
+    seed more than one such event.
     """
     entity_key = entity_value_key(view, dict(values))
     key = head_zset_key(view, entity_key)
-    member = encode_head_event(columns)
+    resolved_event_id = event_id if event_id is not None else f"seed-{event_ts_ms}"
+    member = encode_head_event(resolved_event_id, columns)
     await redis.zadd(key, {member: float(event_ts_ms)})

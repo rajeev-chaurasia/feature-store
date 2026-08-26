@@ -183,7 +183,7 @@ def _push_head_event(
     """
     columns = _head_columns(specs)
     mapping = {column: getattr(event, column) for column in columns}
-    member = encode_head_event(mapping)
+    member = encode_head_event(event.event_id, mapping)
     key = head_zset_key(view, entity_key)
     coarsest_grid_ms = max(spec.granularity_ms for spec in specs)
     cutoff_ms = event.event_ts - coarsest_grid_ms
