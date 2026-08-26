@@ -34,6 +34,22 @@ ICEBERG_PACKAGES = (
     f"org.apache.iceberg:iceberg-aws-bundle:{ICEBERG_VERSION}",
 )
 
+KAFKA_PACKAGE = "org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.4"
+"""The Kafka connector jar. Included in every session this module builds, not only the
+streaming jobs that read Kafka. ``SparkSession.builder.getOrCreate()`` returns a JVM-wide
+singleton: only the *first* session created in a process gets to choose
+``spark.jars.packages``, and every later call in the same process silently reuses that
+session's jars regardless of what it asks for. A test suite that builds a Kafka-less
+session first and a Kafka-needing one later therefore fails with "Failed to find data
+source: kafka", not because anything is wrong with the second session's request, but
+because it was never honored. The fix is to make every session in this project carry
+every jar any test could need, so which one happens to run first stops mattering. The
+cost is a few seconds of one-time, Ivy-cached jar resolution for jobs that never touch
+Kafka, which is a small, comfortable price to pay for the tests never silently poisoning
+each other."""
+
+ALL_PACKAGES = (*ICEBERG_PACKAGES, KAFKA_PACKAGE)
+
 
 class JavaVersionError(RuntimeError):
     """JAVA_HOME points at a JDK this Spark cannot run on."""
@@ -105,7 +121,7 @@ def build_session(
     builder = (
         SparkSession.builder.appName(app_name)
         .master("local[*]")
-        .config("spark.jars.packages", ",".join(ICEBERG_PACKAGES))
+        .config("spark.jars.packages", ",".join(ALL_PACKAGES))
         .config(
             "spark.sql.extensions",
             "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",

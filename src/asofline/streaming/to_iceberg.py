@@ -45,7 +45,7 @@ from pyspark.sql.types import (
 
 from asofline.config import SETTINGS, Settings
 from asofline.offline.ingest import create_raw_table
-from asofline.offline.session import ICEBERG_PACKAGES, build_session
+from asofline.offline.session import build_session
 from asofline.offline.tables import RAW_EVENTS_COLUMNS, qualified
 
 if TYPE_CHECKING:
@@ -55,11 +55,6 @@ if TYPE_CHECKING:
 # A name distinct from whatever the Kafka-to-Redis consumer uses, per the plan's "two
 # consumers, one topic, independent lag" requirement.
 CONSUMER_GROUP = "asofline-to-iceberg"
-
-# build_session() bakes in the Iceberg packages every offline job needs but knows nothing
-# about Kafka. Adding this package through the `extra` config rather than editing
-# session.py keeps that builder generic; only the streaming jobs pay for the Kafka jars.
-_KAFKA_PACKAGE = "org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.4"
 
 # The wire format is exactly asofline.demo.events.EngagementEvent.to_dict(): epoch
 # milliseconds as ints for both timestamps, watch_seconds nullable, liked/shared always
@@ -96,14 +91,20 @@ def build_streaming_session(
     driver_memory: str = "2g",
     shuffle_partitions: int = 4,
 ) -> SparkSession:
-    """``build_session`` plus the Kafka connector jar this job needs."""
-    packages = ",".join((*ICEBERG_PACKAGES, _KAFKA_PACKAGE))
+    """``build_session``, which already carries the Kafka connector jar.
+
+    Kept as a distinct name rather than calling ``build_session`` directly at each call
+    site: it documents, at the call site, that this session is used for Kafka reads, even
+    though every session this project builds now carries that jar (see
+    ``offline.session.KAFKA_PACKAGE``'s docstring for why: the JVM-wide SparkSession
+    singleton means the jar set has to be uniform across every Spark test in one process,
+    not chosen per job).
+    """
     return build_session(
         app_name,
         settings=settings,
         driver_memory=driver_memory,
         shuffle_partitions=shuffle_partitions,
-        extra={"spark.jars.packages": packages},
     )
 
 

@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -30,24 +29,19 @@ from pyspark.sql.functions import unix_millis
 
 from asofline.config import SETTINGS
 from asofline.demo.events import EngagementEvent, EventType
-from asofline.streaming.to_iceberg import build_streaming_session, run
+from asofline.streaming.to_iceberg import run
 
 pytestmark = pytest.mark.spark
 
 NAMESPACE = "asofline_stream_test"
 TABLE = "engagement_events"
 
-
-@pytest.fixture(scope="module")
-def streaming_spark() -> Iterator[SparkSession]:
-    """A dedicated session with the Kafka connector jar, separate from the shared `spark`
-    fixture in conftest.py, which does not carry that jar and is used by unrelated tests
-    that must not pay for it."""
-    session = build_streaming_session("asofline-to-iceberg-tests", shuffle_partitions=2)
-    try:
-        yield session
-    finally:
-        session.stop()
+# Every test here uses the shared, session-scoped `spark` fixture from conftest.py rather
+# than a private session of its own. SparkSession.builder.getOrCreate() returns a JVM-wide
+# singleton, so a fixture believing it owns an isolated session and calling .stop() on it
+# at module teardown actually stops the *shared* session for every later test in the
+# process. See offline.session.KAFKA_PACKAGE's docstring for the other half of this fix:
+# the shared session now always carries the Kafka connector jar this file's tests need.
 
 
 def _produce(events: list[EngagementEvent]) -> None:
@@ -119,7 +113,7 @@ def _rows_for_prefix(spark: SparkSession, prefix: str) -> list:
 
 
 def test_events_land_with_correct_timestamps_and_fields(
-    streaming_spark: SparkSession, tmp_path: Path
+    spark: SparkSession, tmp_path: Path
 ) -> None:
     """The core done-test: produce, run bounded, read back, check shape and values.
 
@@ -134,7 +128,7 @@ def test_events_land_with_correct_timestamps_and_fields(
     _produce(events)
 
     query = run(
-        streaming_spark,
+        spark,
         namespace=NAMESPACE,
         table=TABLE,
         checkpoint_location=str(tmp_path / "checkpoint"),
@@ -142,7 +136,7 @@ def test_events_land_with_correct_timestamps_and_fields(
     )
     assert not query.isActive
 
-    rows = _rows_for_prefix(streaming_spark, prefix)
+    rows = _rows_for_prefix(spark, prefix)
     assert len(rows) == len(events)
 
     by_id = {row["event_id"]: row for row in rows}
@@ -160,7 +154,7 @@ def test_events_land_with_correct_timestamps_and_fields(
 
 
 def test_restart_against_the_same_checkpoint_does_not_duplicate(
-    streaming_spark: SparkSession, tmp_path: Path
+    spark: SparkSession, tmp_path: Path
 ) -> None:
     """Structured Streaming's checkpoint, not application-level dedup, is what makes a
     second bounded run against the same checkpoint a no-op when no new data arrived."""
@@ -170,29 +164,29 @@ def test_restart_against_the_same_checkpoint_does_not_duplicate(
 
     checkpoint = str(tmp_path / "checkpoint")
     first = run(
-        streaming_spark,
+        spark,
         namespace=NAMESPACE,
         table=TABLE,
         checkpoint_location=checkpoint,
         bounded=True,
     )
     assert not first.isActive
-    first_rows = _rows_for_prefix(streaming_spark, prefix)
+    first_rows = _rows_for_prefix(spark, prefix)
     assert len(first_rows) == len(events)
 
     second = run(
-        streaming_spark,
+        spark,
         namespace=NAMESPACE,
         table=TABLE,
         checkpoint_location=checkpoint,
         bounded=True,
     )
     assert not second.isActive
-    second_rows = _rows_for_prefix(streaming_spark, prefix)
+    second_rows = _rows_for_prefix(spark, prefix)
     assert len(second_rows) == len(events), "restart against the same checkpoint duplicated rows"
 
 
-def test_uses_its_own_consumer_group(streaming_spark: SparkSession, tmp_path: Path) -> None:
+def test_uses_its_own_consumer_group(spark: SparkSession, tmp_path: Path) -> None:
     """Guards the plan's explicit requirement: this job must not share a consumer group
     with the Kafka-to-Redis consumer built separately against the same topic."""
     from asofline.streaming.to_iceberg import CONSUMER_GROUP
@@ -203,7 +197,7 @@ def test_uses_its_own_consumer_group(streaming_spark: SparkSession, tmp_path: Pa
     prefix = f"group-{uuid.uuid4().hex[:8]}"
     _produce(_make_events(prefix)[:1])
     query = run(
-        streaming_spark,
+        spark,
         namespace=NAMESPACE,
         table=TABLE,
         checkpoint_location=str(tmp_path / "checkpoint"),
@@ -211,4 +205,4 @@ def test_uses_its_own_consumer_group(streaming_spark: SparkSession, tmp_path: Pa
         bounded=True,
     )
     assert not query.isActive
-    assert len(_rows_for_prefix(streaming_spark, prefix)) == 1
+    assert len(_rows_for_prefix(spark, prefix)) == 1
