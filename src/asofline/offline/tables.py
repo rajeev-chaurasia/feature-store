@@ -37,6 +37,17 @@ RAW_EVENTS_COLUMNS = (
 MAX_STATE_ARITY = 2
 """Every supported monoid state fits in two doubles. AVG is the only one that needs both."""
 
+SERVING_LOG_COLUMNS = (
+    ("log_id", "STRING NOT NULL"),
+    ("view_name", "STRING NOT NULL"),
+    ("view_version", "INT NOT NULL"),
+    ("entity_keys", "MAP<STRING, STRING> NOT NULL"),
+    ("request_ts", "TIMESTAMP NOT NULL"),
+    ("served_at_ts", "TIMESTAMP NOT NULL"),
+    ("feature_name", "STRING NOT NULL"),
+    ("value", "DOUBLE"),
+)
+
 
 def qualified(namespace: str, table: str) -> str:
     return f"{namespace}.{table}"
@@ -56,6 +67,32 @@ def raw_events_ddl(namespace: str, table: str) -> str:
             {columns}
         ) USING iceberg
         PARTITIONED BY (days(event_ts))
+        TBLPROPERTIES ('write.parquet.compression-codec' = 'zstd')
+    """
+
+
+def serving_log_ddl(namespace: str, table: str) -> str:
+    """The skew detector's evidence trail: one row per (served request, feature).
+
+    Long rather than wide, matching the pattern ``offline.pit.known_features`` already
+    uses: a detector comparing served values against a recomputation joins on
+    ``(entity, request_ts, feature_name)`` regardless of which view produced the row, so a
+    generic detector never needs per-view schema knowledge. The wire format leaving the
+    serving layer is one nested JSON object per served request (mirroring
+    ``EngagementEvent``'s own convention); flattening ``features`` into this long shape is
+    the ingestion step's job, not the serving layer's, so logging stays a single
+    fire-and-forget write with no per-feature fan-out on the hot path.
+
+    Partitioned on ``request_ts``, the ``as_of`` the caller asked to be served as of, not
+    ``served_at_ts``, because the detector's join key is ``request_ts`` and partitioning on
+    the column the join filters by is what makes that join prunable.
+    """
+    columns = ",\n            ".join(f"{name} {sql}" for name, sql in SERVING_LOG_COLUMNS)
+    return f"""
+        CREATE TABLE IF NOT EXISTS {qualified(namespace, table)} (
+            {columns}
+        ) USING iceberg
+        PARTITIONED BY (days(request_ts))
         TBLPROPERTIES ('write.parquet.compression-codec' = 'zstd')
     """
 
