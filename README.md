@@ -245,8 +245,6 @@ End to end: bring the stack up, run the unit and Spark/integration suites, run
 committed benchmark artifacts, and run `tests/spark/test_skew_detector.py` to watch the
 detector catch a deliberately injected bug and correctly ignore a clean run.
 
-## Style
+## License
 
-SOLID, DRY, YAGNI. No new abstraction with a single caller. Comments explain why, not
-what. No em-dashes, no AI attribution in code, commits, or documentation. Ruff at 100
-columns, mypy strict on `src`.
+Apache-2.0. See `LICENSE`.

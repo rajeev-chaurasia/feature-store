@@ -12,9 +12,11 @@ env:
   UV_FROZEN: "1"
 
 jobs:
-  # The fast lane. No JVM, no containers, no network. If the one-way dependency rule in
-  # tests/unit/test_layering.py holds, everything that defines window semantics is
-  # checked here, in seconds.
+  # The fast lane. No JVM actually started, no containers, no network. If the one-way
+  # dependency rule in tests/unit/test_layering.py holds, everything that defines window
+  # semantics is checked here, in seconds. All extras are still installed: mypy has to
+  # resolve every import in src, including optional ones like redis and fastapi, and
+  # installing a pip package needs neither a JVM nor a running container.
   checks:
     runs-on: ubuntu-latest
     steps:
@@ -23,7 +25,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --group dev
+      - run: uv sync --group dev --all-extras
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy src
