@@ -3,9 +3,16 @@
 This is not a description of how one would benchmark the online store. It seeds real
 Redis state through the actual Kafka-to-Redis write path (``streaming.consumer``), starts
 the actual FastAPI app in a subprocess, drives it with the actual open-loop load generator,
-and writes a warpline-grade artifact through ``asofline.artifacts``. Every number this
-script prints is recomputed by ``scripts/validate_artifacts.py`` from the committed file,
-not trusted from this process's own memory.
+and writes a committed artifact through ``asofline.artifacts`` with the full raw sample
+array, not only a summary. Every number this script prints is recomputed by
+``scripts/validate_artifacts.py`` from the committed file, not trusted from this process's
+own memory.
+
+Each configuration is run 3 times, not once. A single trial pair does not distinguish a
+real effect from ordinary run-to-run variance on a shared development machine, and an
+earlier version of this script that ran once per configuration reported a p99 gap that
+this rerun shows was mostly noise: p90 and p99 vary more between repeated trials of the
+same configuration than the two configurations differ from each other.
 """
 
 from __future__ import annotations
@@ -103,7 +110,7 @@ def start_server(*, port: int, feature_log_sample_rate: float) -> subprocess.Pop
     raise RuntimeError("serving app did not become healthy in time")
 
 
-def run_one(*, feature_log_sample_rate: float, out_name: str) -> dict[str, float | int]:
+def run_one(*, feature_log_sample_rate: float, out_name: str, trial: int) -> dict[str, float | int]:
     port = _port_for(feature_log_sample_rate)
     config = LoadTestConfig(
         base_url=f"http://127.0.0.1:{port}",
@@ -147,6 +154,7 @@ def run_one(*, feature_log_sample_rate: float, out_name: str) -> dict[str, float
             "requested_count": requested_count,
             "error_count": error_count,
             "feature_log_sample_rate": feature_log_sample_rate,
+            "trial": trial,
         },
         raw_samples_ms=raw_samples_ms,
     )
@@ -168,18 +176,34 @@ def run_one(*, feature_log_sample_rate: float, out_name: str) -> dict[str, float
 
 
 def main() -> int:
-    # Two runs, not one: whether fire-and-forget feature logging actually stays off the
-    # request path is a claim worth checking rather than assuming, since confluent-kafka's
-    # Producer is not async-native and both the request handler and the logging call
-    # share one event loop under this single-worker uvicorn process.
-    with_logging = run_one(feature_log_sample_rate=1.0, out_name="online_latency.json")
-    without_logging = run_one(
-        feature_log_sample_rate=0.0, out_name="online_latency_no_logging.json"
-    )
+    trials = 3
+    with_logging = [
+        run_one(
+            feature_log_sample_rate=1.0,
+            out_name=f"online_latency_trial{trial}.json",
+            trial=trial,
+        )
+        for trial in range(1, trials + 1)
+    ]
+    without_logging = [
+        run_one(
+            feature_log_sample_rate=0.0,
+            out_name=f"online_latency_no_logging_trial{trial}.json",
+            trial=trial,
+        )
+        for trial in range(1, trials + 1)
+    ]
+
+    def spread(label: str, stats: list[dict[str, float | int]], key: str) -> None:
+        values = sorted(float(s[key]) for s in stats)
+        print(
+            f"{label:28} {key}: {values[0]:.2f} - {values[-1]:.2f} ms across {len(values)} trials"
+        )
 
     print()
-    print(f"p99 with logging:    {with_logging['p99']:.2f}ms")
-    print(f"p99 without logging: {without_logging['p99']:.2f}ms")
+    for key in ("median", "p90", "p99"):
+        spread("with logging", with_logging, key)
+        spread("without logging", without_logging, key)
     return 0
 
 

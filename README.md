@@ -20,7 +20,7 @@ for exact provenance.
 | | |
 |---|---|
 | Test suite | 290 tests, all against the real stack, all passing together in one process |
-| Online store | p50 under 6ms at 50 QPS, 1000 requests, open loop, 3 trials |
+| Online store | p50 under 6ms at 50 QPS, 1000 requests, open loop, 6 committed trials |
 | Streaming freshness | p50 34.6ms event-to-visible, 120 probes, zero failures |
 | Point-in-time leak | 0.08% to 19.7% of rows change value depending on late-arrival width, measured, not assumed |
 | Skew detection | clean pipeline under 2% mismatch; injected bug clears 14.3% and is named correctly |
@@ -159,16 +159,16 @@ suite or benchmark scripts, not asserted in prose.
   are tiny. A logistic regression over these features rarely has its decision flipped by
   a change that small. `src/asofline/experiments/`
 - **P3, online-store latency:** 1000 requests at 50 QPS, open loop, real seeded Redis
-  state, real FastAPI process, run 3 times per configuration to check whether a single
-  pair of numbers was actually representative. p50 with fire-and-forget feature logging
-  enabled: 4.67-5.34ms (median 5.20ms); disabled: 4.79-4.88ms (median 4.86ms), a small,
-  directionally consistent gap in 2 of 3 trials. p90 and p99 swing far more between
-  repeated trials of the *same* configuration (p99 57-164ms with logging on, 41-131ms
-  with it off) than the two configurations differ from each other: the original
-  single-trial comparison (p99 57ms vs 41ms) understated that variance and overstated
-  confidence in a stable difference. p50 is the reliable signal here; p90/p99 on this
-  benchmark need more trials or a less noisy host than a shared development machine
-  before the tail is trustworthy. `results/2026-08-24-online-latency/`
+  state, real FastAPI process, run 3 times per configuration (6 committed artifacts) to
+  check whether a single pair of numbers would have been representative. p50 with
+  fire-and-forget feature logging enabled: 4.89-5.27ms; disabled: 4.58-4.96ms, a small,
+  mostly consistent gap. p90 and p99 vary far more, and not in a fixed direction: p99
+  ranges 199.7-277.6ms with logging enabled versus 108.3-375.4ms with it disabled, and
+  the disabled configuration's worst trial exceeds the enabled configuration's worst
+  trial. An earlier single-trial version of this benchmark reported p99 57ms vs 41ms, a
+  stable-looking difference this larger run shows was mostly noise: on this benchmark, at
+  this sample size, on a shared development machine, p50 is a usable signal and the tail
+  is not. `results/2026-08-24-online-latency/`
 - **P4, streaming freshness:** 120 real event-to-visible-in-serving-response probes
   against a live Kafka-to-Redis consumer subprocess, zero failures. p50 34.6ms / p99
   39.7ms, dominated by the probe's own 30ms poll interval rather than by the pipeline.
