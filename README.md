@@ -20,7 +20,7 @@ for exact provenance.
 | | |
 |---|---|
 | Test suite | 290 tests, all against the real stack, all passing together in one process |
-| Online store | p50 5.34ms / p99 57.21ms at 50 QPS, 1000 requests, open loop |
+| Online store | p50 under 6ms at 50 QPS, 1000 requests, open loop, 3 trials |
 | Streaming freshness | p50 34.6ms event-to-visible, 120 probes, zero failures |
 | Point-in-time leak | 0.08% to 19.7% of rows change value depending on late-arrival width, measured, not assumed |
 | Skew detection | clean pipeline under 2% mismatch; injected bug clears 14.3% and is named correctly |
@@ -151,14 +151,24 @@ suite or benchmark scripts, not asserted in prose.
   `as_of_event_time` and `as_of_known` backfills scales from 0.08% at a 1-second late-tail
   scale to 19.7% at 30 minutes. The downstream AUC gap between a model scored honestly
   and the strict baseline stayed within +/-0.0001 at every point, including at 19.7%
-  disagreement, reported because it is what came out: a logistic regression over these
-  features rarely has its decision flipped by one late event. `src/asofline/experiments/`
+  disagreement, reported because it is what came out. Measuring the disagreement's
+  magnitude, not only its rate, explains why: on the widest late-tail scale, the mean
+  relative difference on disagreeing rows is 20.4%, but the median is 0.72%, a heavily
+  skewed distribution where a handful of near-zero-baseline values on one sparse feature
+  (a 1-hour window over the finest tile grid) inflate the mean while most disagreements
+  are tiny. A logistic regression over these features rarely has its decision flipped by
+  a change that small. `src/asofline/experiments/`
 - **P3, online-store latency:** 1000 requests at 50 QPS, open loop, real seeded Redis
-  state, real FastAPI process. p50 5.34ms / p90 7.24ms / p99 57.21ms with fire-and-forget
-  feature logging enabled, versus p50 4.79ms / p90 8.62ms / p99 40.93ms with it disabled:
-  logging is not fully free of the request path under a single-worker process, and the
-  comparison is committed as a pair rather than assumed away.
-  `results/2026-08-24-online-latency/`
+  state, real FastAPI process, run 3 times per configuration to check whether a single
+  pair of numbers was actually representative. p50 with fire-and-forget feature logging
+  enabled: 4.67-5.34ms (median 5.20ms); disabled: 4.79-4.88ms (median 4.86ms), a small,
+  directionally consistent gap in 2 of 3 trials. p90 and p99 swing far more between
+  repeated trials of the *same* configuration (p99 57-164ms with logging on, 41-131ms
+  with it off) than the two configurations differ from each other: the original
+  single-trial comparison (p99 57ms vs 41ms) understated that variance and overstated
+  confidence in a stable difference. p50 is the reliable signal here; p90/p99 on this
+  benchmark need more trials or a less noisy host than a shared development machine
+  before the tail is trustworthy. `results/2026-08-24-online-latency/`
 - **P4, streaming freshness:** 120 real event-to-visible-in-serving-response probes
   against a live Kafka-to-Redis consumer subprocess, zero failures. p50 34.6ms / p99
   39.7ms, dominated by the probe's own 30ms poll interval rather than by the pipeline.
@@ -167,10 +177,15 @@ suite or benchmark scripts, not asserted in prose.
   deliberately injected bug (drop the head merge for one feature, on half the served
   vectors) produces a 14.3% mismatch rate on that feature alone, landing entirely in the
   `partial_head_tile` bucket since `late_fraction=0` in that scenario rules out the other
-  one. Sensitivity measured directly at 2% and 10% injection rates rather than assumed:
-  observed mismatch rates of 0.67% and 3.33% respectively, both roughly 29% of the
-  injected fraction, because most entities in this Zipf-skewed population have no
-  activity in any given hour to lose in the first place. `tests/spark/test_skew_detector.py`
+  one. Sensitivity measured directly at 2%, 10%, and 50% injection rather than assumed:
+  observed mismatch rates of 0.67%, 3.33%, and 14.3%, which is 33.5%, 33.3%, and 28.6% of
+  the injected fraction respectively, not a single flat ratio. The two low-injection
+  points agree closely; the 50% point runs somewhat lower, and the most defensible
+  account given the test design (each entity gets one independent Bernoulli draw, never
+  more than one) is that the 2% and 10% points are drawn from only 6 and 30 degraded
+  entities respectively, small enough samples that their agreement with each other could
+  itself be partly coincidence, not that the 50% point represents some other regime.
+  `tests/spark/test_skew_detector.py`
 - **A real bug, not the planned one:** the detector's first live run, before any bug was
   deliberately injected, flagged a reproducible undercount on `count_1d` concentrated on
   the most active synthetic users. Root cause: the online Redis head stored recent events
