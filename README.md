@@ -1,5 +1,9 @@
 # asofline
 
+[![ci](https://github.com/rajeev-chaurasia/feature-store/actions/workflows/ci.yml/badge.svg)](https://github.com/rajeev-chaurasia/feature-store/actions/workflows/ci.yml)
+[![python](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 A point-in-time correct feature store, where the interesting artifact is not the code but
 the evidence chain: a shared window-semantics core that both the offline batch path and
 the online streaming path compile against, a training-serving skew detector that found a
@@ -10,6 +14,20 @@ samples rather than trusts.
 **Status:** all six planned phases (P0-P5) built, verified against the real stack, and
 committed. See `results/` for committed evidence and the Verified numbers section below
 for exact provenance.
+
+## At a glance
+
+| | |
+|---|---|
+| Test suite | 290 tests, all against the real stack, all passing together in one process |
+| Online store | p50 5.34ms / p99 57.21ms at 50 QPS, 1000 requests, open loop |
+| Streaming freshness | p50 34.6ms event-to-visible, 120 probes, zero failures |
+| Point-in-time leak | 0.08% to 19.7% of rows change value depending on late-arrival width, measured, not assumed |
+| Skew detection | clean pipeline under 2% mismatch; injected bug clears 14.3% and is named correctly |
+| Found along the way | a real production bug and a real CI-blocking bug, neither of them planned |
+
+Full detail with exact provenance for every one of these numbers is in
+[Verified numbers](#verified-numbers).
 
 ## Problem
 
